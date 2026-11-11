@@ -1,0 +1,8 @@
+{
+  "name": "optimizely-active-campaign-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Local, cached, read-only Optimizely campaign dashboard",
+  "scripts": { "start": "node server.js", "test": "node --test test/*.test.js" },
+  "engines": { "node": ">=22.19.0" }
+}
