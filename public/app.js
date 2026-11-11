@@ -98,7 +98,7 @@ function renderOverview(items) {
   }).join('') || '<p class="empty">No campaigns match these analytics filters.</p>';
 }
 
-function projectEndpoint(path) { return path + '?project_id=' + encodeURIComponent(state.projectId); }
+function projectEndpoint(path) { return '.' + path + '?project_id=' + encodeURIComponent(state.projectId); }
 async function load() {
   if (loading) return; loading=true; const requestedProject=state.projectId;
   try { const r=await fetch(projectEndpoint('/api/dashboard'));const data=await r.json();if(!r.ok)throw Error(data.error||'Could not load campaigns.');if(requestedProject!==state.projectId)return;state.data=data;render(); }
@@ -173,7 +173,7 @@ $('export').onclick=()=>{
 };
 async function initializeProjects() {
   try {
-    const r=await fetch('/api/projects');if(!r.ok)throw Error('Could not load projects.');const data=await r.json();
+    const r=await fetch('./api/projects');if(!r.ok)throw Error('Could not load projects.');const data=await r.json();
     let saved;try{saved=localStorage.getItem('optimizely-dashboard-project');}catch{}
     const selected=data.projects.find(p=>p.id===saved) || data.projects.find(p=>p.id===data.defaultProjectId) || data.projects[0];
     $('project').innerHTML=data.projects.map(p=>`<option value="${escape(p.id)}">${escape(p.name)}</option>`).join('');

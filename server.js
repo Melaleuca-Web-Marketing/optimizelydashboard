@@ -11,6 +11,7 @@ const { SnapshotCache, atomicJson } = require('./cache');
 const { summarize } = require('./model');
 const { resolveFields, designUrl } = require('./fields');
 const { createOptimizelyClient } = require('./optimizely');
+const { publicOrigin, sameOrigin } = require('./deployment');
 function loadEnv(file) {
   if (!fs.existsSync(file)) return;
   for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
@@ -19,6 +20,7 @@ function loadEnv(file) {
   }
 }
 loadEnv(path.join(__dirname, '.env')); loadEnv(path.join(__dirname, '..', '.env'));
+const allowedOrigin = publicOrigin(process.env.DASHBOARD_PUBLIC_URL);
 const projectId = process.env.DASHBOARD_PROJECT_ID || '5443948697616384';
 const number = (value, fallback, min, max) => { const n = Number(value || fallback); if (!Number.isFinite(n) || n < min || n > max) throw new Error('Invalid dashboard configuration'); return n; };
 const port = number(process.env.DASHBOARD_PORT, 4243, 1, 65535);
@@ -34,7 +36,7 @@ const workspaces = new Map(projectDefinitions.map(project => {
   const workspace = { project, annotations: {}, annotationQueue: Promise.resolve(), annotationsFile: path.join(dataDir, legacy ? 'annotations.json' : `annotations-${project.id}.json`) };
   const client = createOptimizelyClient({ token: process.env.OPTIMIZELY_TOKEN, projectId: project.id, projectName: project.name, apiBase: process.env.OPTIMIZELY_API_BASE });
   workspace.cache = new SnapshotCache({ file: path.join(dataDir, legacy ? 'snapshot.json' : `snapshot-${project.id}.json`), ttlMs: ttl, load: async () => {
-    if (!process.env.OPTIMIZELY_TOKEN) { const e = new Error('Missing token'); e.publicMessage = 'Set OPTIMIZELY_TOKEN in the OptAPI .env to enable live updates.'; throw e; }
+    if (!process.env.OPTIMIZELY_TOKEN) { const e = new Error('Missing token'); e.publicMessage = 'Set OPTIMIZELY_TOKEN in the dashboard .env to enable live updates.'; throw e; }
     return client.snapshot();
   } });
   return [project.id, workspace];
@@ -51,11 +53,6 @@ async function initializeWorkspace(workspace) {
   if (workspace.cache.snapshot?.projectId !== id || ![2, 3, 4, 5, 6].includes(workspace.cache.snapshot?.schemaVersion)) workspace.cache.snapshot = seed;
 }
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
-function sameOrigin(req) {
-  if (req.headers['sec-fetch-site'] === 'cross-site') return false;
-  if (!req.headers.origin) return true;
-  try { const origin = new URL(req.headers.origin); return origin.host === req.headers.host && origin.protocol === 'http:'; } catch { return false; }
-}
 async function body(req) {
   if (!req.headers['content-type']?.startsWith('application/json')) throw new Error('Expected application/json');
   let text = ''; for await (const chunk of req) { text += chunk; if (text.length > 20000) throw new Error('Request too large'); } return JSON.parse(text || '{}');
@@ -78,13 +75,13 @@ const server = http.createServer(async (req, res) => {
       }), sync: cache.status() });
     }
     if (url.pathname === '/api/refresh' && req.method === 'POST') {
-      if (!sameOrigin(req)) return json(res, 403, { error: 'Refresh must come from this dashboard.' });
+      if (!sameOrigin(req, allowedOrigin)) return json(res, 403, { error: 'Refresh must come from this dashboard.' });
       await body(req); cache.refresh(true).catch(() => {});
       return json(res, 202, cache.status());
     }
     const match = url.pathname.match(/^\/api\/annotations\/(\d{1,20})$/);
     if (match && req.method === 'PATCH') {
-      if (!sameOrigin(req)) return json(res, 403, { error: 'Edits must come from this dashboard.' });
+      if (!sameOrigin(req, allowedOrigin)) return json(res, 403, { error: 'Edits must come from this dashboard.' });
       if (!cache.snapshot?.items.some(x => x.id === match[1])) return json(res, 404, { error: 'Unknown campaign' });
       const input = await body(req); const next = {};
       input.design ??= workspace.annotations[match[1]]?.design || '';
