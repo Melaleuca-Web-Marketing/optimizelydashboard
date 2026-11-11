@@ -77,3 +77,16 @@ test('collapsed campaigns stay collapsed across renders and do not carry over to
   run("state.projectId='mx';renderOverview(items)");
   assert.match(elements.get('promoCampaigns').innerHTML, /aria-expanded="true"/);
 });
+
+test('history summaries and code diffs are escaped and absent values remain distinguishable', () => {
+  const { run, context, elements } = setup();
+  context.historyData = { fetchedAt:'2026-11-11T00:00:00Z', hasMore:true, records:[{
+    id:'1',created:'2026-11-01T00:00:00Z',actor:'<Person>',action:'update',summary:'<img src=x onerror=bad()>',
+    entity:{type:'experiment',name:'<Experience>'},source:'api',changes:[{property:'html',description:'Updated HTML',before:null,after:'<script>bad()</script>',afterTruncated:true}]
+  }] };
+  run("document.getElementById('historySearch').value='';renderHistoryRecords(historyData)");
+  const html=elements.get('historyRecords').innerHTML;
+  assert.match(html,/&lt;script&gt;bad\(\)&lt;\/script&gt;/);
+  assert.match(html,/&lt;Person&gt;/);assert.match(html,/Not set/);assert.match(html,/value shortened/);
+  assert.doesNotMatch(html,/<script>|<img/);
+});

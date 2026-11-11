@@ -120,13 +120,62 @@ function renderAnalytics(c) {
   function value(r,key) { return r.payload && Object.hasOwn(r.payload,key) ? (r.payload[key]===''?'(blank)':typeof r.payload[key]==='string'?r.payload[key]:JSON.stringify(r.payload[key])) : 'Not provided'; }
   $('analyticsRecords').innerHTML=records.map(r=>`<article class="promo-card"><h4>${escape(r.attribute)}</h4><p>${escape(r.experienceName)}<br>${escape(r.variationName)}${r.percent===null?'':` · ${escape(r.percent)}% traffic${r.percent===0?' (not receiving traffic)':''}`}</p>${r.status==='parsed'?`<dl class="promo-values">${['id','name','creative','position'].map(key=>`<dt>${key}</dt><dd>${escape(value(r,key))}</dd>`).join('')}</dl>`:`<p class="field-warning">${r.status==='dynamic'?'Dynamic value: computed by JavaScript; cannot be resolved from configuration alone.':'Could not parse this attribute as a JSON object. Review the source value.'}</p>`}<p class="promo-source">${escape(r.scope)} · ${escape(r.changeType)}${r.changeId?' · Change '+escape(r.changeId):''}${r.pageId?' · Page '+escape(r.pageId):''}<br>${escape(r.path)}${r.selector?' · Selector: '+escape(r.selector):''}${r.occurrences>1?' · '+r.occurrences+' identical occurrences in this change':''}</p><details><summary>${r.status==='parsed'?'Full promo JSON':'Source value'}</summary><pre>${escape(r.payload?JSON.stringify(r.payload,null,2):r.raw)}</pre></details></article>`).join('')||'<p>No promo records match these filters.</p>';
 }
+let historyCooldownTimer;
+function historyView() {
+  return section('Change history', '<p class="muted">Loaded only when you open this tab and shared across coworkers for 24 hours. Includes the campaign and known experiences/variations; shared audience/page edits and removed relationships may be absent.</p><div class="history-actions"><button class="quiet" id="historyRefresh" disabled>Refresh history</button><button class="quiet" id="historyOlder" disabled>Load older</button><label class="history-search">Find a change<input type="search" id="historySearch" placeholder="Summary, person or field…"></label></div><p class="muted">Refresh starts again with the latest 30 days. Load older retrieves more pages or the preceding 30-day period.</p><p id="historyStatus" role="status">Loading history…</p><div id="historyRecords"></div>');
+}
+async function loadHistory(id, action='read', previous=null) {
+  const project=state.projectId;
+  const matches=()=>state.projectId===project && openId===id && detailView==='history' && $('historyRecords');
+  if(!matches())return;
+  $('historyRefresh').disabled=$('historyOlder').disabled=true;
+  $('historyStatus').textContent=action==='read'?'Loading history…':'Loading requested history…';
+  try {
+    const options=action==='read'?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,cursor:previous?.cursor||''})};
+    const r=await fetch(projectEndpoint('/api/history/'+id),options),data=await r.json();
+    if(!r.ok)throw Error(data.error||'Could not load history.');
+    if(!matches())return;
+    renderHistory(data);
+    function updateButtons() {
+      if(!matches())return;
+      const cooling=data.retryAt && Date.parse(data.retryAt)>Date.now();
+      $('historyRefresh').disabled=!data.available || Boolean(cooling);
+      $('historyOlder').disabled=!data.hasMore || Boolean(data.error && cooling);
+      if(cooling){clearTimeout(historyCooldownTimer);historyCooldownTimer=setTimeout(updateButtons,Math.min(60000,Date.parse(data.retryAt)-Date.now()+25));}
+    }
+    $('historyRefresh').onclick=()=>loadHistory(id,'refresh',data);
+    $('historyOlder').onclick=()=>loadHistory(id,'older',data);
+    $('historySearch').oninput=()=>renderHistoryRecords(data);
+    updateButtons();
+  }catch(e){if(matches()){$('historyStatus').textContent=e.message;$('historyRefresh').disabled=false;$('historyRefresh').onclick=()=>loadHistory(id);}}
+}
+function renderHistory(data) {
+  const parts=[];
+  if(data.fetchedAt)parts.push(`Loaded period: ${date(data.start)} – ${date(data.end)} · ${data.records.length} changes. Last refreshed ${new Date(data.fetchedAt).toLocaleString()}.`);
+  if(data.entityCount)parts.push(`${data.entityCount} related entities · last load used ${data.lastCalls} Optimizely request${data.lastCalls===1?'':'s'} · shared ${data.cacheHours}-hour cache.`);
+  if(data.moreInPeriod)parts.push('More entries remain in this period; Load older retrieves the next page first.');
+  if(data.stale && data.fetchedAt)parts.push('Saved history is older than 24 hours.');
+  if(data.error)parts.push(data.error);
+  if(data.limitReached)parts.push('The 2,000-entry display limit has been reached. Open Optimizely for the full history.');
+  if(!parts.length)parts.push(data.available?'No changes returned in this period.':'History is not available yet.');
+  $('historyStatus').textContent=parts.join(' ');
+  renderHistoryRecords(data);
+}
+function renderHistoryRecords(data) {
+  const query=$('historySearch').value.trim().toLowerCase();
+  const records=data.records.filter(r=>!query||[r.summary,r.actor,r.action,r.entity.name,...r.changes.map(c=>c.property)].join(' ').toLowerCase().includes(query));
+  function value(c,key){return c[key]===null?'Not set':c[key]===''?'(blank)':c[key];}
+  $('historyRecords').innerHTML=records.map(r=>`<article class="history-entry"><header><time title="${escape(r.created)}">${escape(new Date(r.created).toLocaleString())}</time><span>${escape(r.actor)}</span><span class="badge">${escape(r.action)}</span></header><p class="history-summary">${escape(r.summary)}</p><p class="muted">${escape(r.entity.type==='experiment'?'Experience / experiment':r.entity.type)} · ${escape(r.entity.name)}${r.entity.deleted?' (deleted)':''} · ${r.source==='ui'?'Optimizely UI':r.source==='api'?'API':escape(r.source)}</p>${r.changes.length?`<details><summary>What changed (${r.changes.length}${r.extraChanges?' + '+r.extraChanges+' more':''})</summary>${r.changes.map(c=>`<section class="history-field"><strong>${escape(c.description||c.property)}</strong><div class="muted">${escape(c.property)}</div><div class="history-diff"><div><span>Before</span><pre>${escape(value(c,'before'))}${c.beforeTruncated?'\n… (value shortened)':''}</pre></div><div><span>After</span><pre>${escape(value(c,'after'))}${c.afterTruncated?'\n… (value shortened)':''}</pre></div></div></section>`).join('')}${r.extraChanges?'<p class="muted">Additional properties are available in Optimizely.</p>':''}</details>`:''}</article>`).join('') || `<p class="muted">${query?'No changes match your search.':data.fetchedAt?(data.hasMore?'No changes found in the loaded period. Use Load older to look further back.':'No changes found in the loaded history period.'):'No saved history to display.'}</p>`;
+}
 function details(id, editing=false, view = id===openId ? detailView : 'configuration') {
   const c=state.data.items.find(x=>x.id===id); if(!c)return;openId=id;detailView=view;
   const a=c.annotation;
   let content=`<h2>${escape(title(c))}</h2><div class="detail-api">${escape(c.apiName)} · ${c.id}</div><div class="detail-toolbar"><a href="${escape(c.link)}" target="_blank" rel="noopener noreferrer">Open in Optimizely ↗</a>${designLink(c)}<button id="editAnnotation" class="quiet">${editing?'View configuration':'Edit local details'}</button></div>`;
-  if(!editing) content+=`<div class="detail-tabs" role="group" aria-label="Campaign detail view"><button data-detail-view="configuration" aria-pressed="${view==='configuration'}">Configuration</button><button data-detail-view="analytics" aria-pressed="${view==='analytics'}">Analytics${c.analytics?' ('+c.analytics.records.length+')':''}</button></div>`;
+  if(!editing) content+=`<div class="detail-tabs" role="group" aria-label="Campaign detail view"><button data-detail-view="configuration" aria-pressed="${view==='configuration'}">Configuration</button><button data-detail-view="analytics" aria-pressed="${view==='analytics'}">Analytics${c.analytics?' ('+c.analytics.records.length+')':''}</button><button data-detail-view="history" aria-pressed="${view==='history'}">History</button></div>`;
   if(editing) {
     content+=`<p class="muted">Edit saved fallback values below. Populated Optimizely custom fields take priority; update those in Optimizely.</p><form id="annotationForm"><label class="full">Descriptive name<input name="name" maxlength="250" value="${escape(a.name||'')}"></label><label class="full">Design reference (optional)<input name="design" type="url" maxlength="2000" placeholder="https://www.figma.com/… or https://xd.adobe.com/…" value="${escape(a.design||'')}"></label><label>Owner<input name="owner" maxlength="200" value="${escape(a.owner||'')}"></label><label>Planned end date<input name="plannedEnd" type="date" value="${escape(a.plannedEnd||'')}"></label><label class="full">User Story text<textarea name="story" maxlength="3000">${escape(a.story||'')}</textarea></label><label class="full">Primary Azure DevOps story link<input name="storyUrl" type="url" maxlength="1000" value="${escape(a.storyUrl||'')}"></label><label class="full">Page / site area<textarea name="area" maxlength="3000">${escape(a.area||'')}</textarea></label><label class="full">Notes<textarea name="notes" maxlength="5000">${escape(a.notes||'')}</textarea></label><div class="form-actions full"><button type="submit" class="primary">Save details</button><span class="muted">Saved locally. Does not change Optimizely.</span></div><p id="formError" class="full" role="alert"></p></form>`;
+  } else if(view==='history') {
+    content+=historyView();
   } else if(view==='analytics') {
     content+=analyticsView(c);
   } else {
@@ -141,6 +190,7 @@ function details(id, editing=false, view = id===openId ? detailView : 'configura
   }
   $('detailContent').innerHTML=content;$('editAnnotation').onclick=()=>details(id,!editing);
   document.querySelectorAll('[data-detail-view]').forEach(button=>button.onclick=()=>details(id,false,button.dataset.detailView));
+  if(!editing && view==='history')loadHistory(id);
   if(!editing && view==='analytics') {
     renderAnalytics(c);
     if($('analyticsSearch'))$('analyticsSearch').oninput=()=>renderAnalytics(c);

@@ -49,6 +49,14 @@ function summarize(raw) {
     groups.push({ c: e, es: [e], standalone: true, missing: [] });
   }
   const items = groups.map(({ c, es, standalone, missing }) => {
+    const priorityIds = new Set((c.experiment_priorities || []).flat(Infinity).map(String));
+    const related = standalone ? [c] : raw.experiments.filter(e => priorityIds.has(String(e.id)) || String(e.campaign_id) === String(c.id) || (e.campaign_ids || []).map(String).includes(String(c.id)));
+    const historyEntities = [{ type: standalone ? 'experiment' : 'campaign', id: String(c.id) }];
+    for (const id of priorityIds) historyEntities.push({ type: 'experiment', id });
+    for (const e of related) {
+      historyEntities.push({ type: 'experiment', id: String(e.id) });
+      for (const v of e.variations || []) if (v.variation_id || v.id) historyEntities.push({ type: 'variation', id: String(v.variation_id || v.id) });
+    }
     const fields = customFields(c, es);
     const allAudienceIds = uniq(es.flatMap(audienceIds));
     const audienceNames = allAudienceIds.map(id => audiences.get(id)?.name || 'Unknown audience ' + id);
@@ -98,9 +106,11 @@ function summarize(raw) {
       experiences: detail, experienceCount: detail.length, warnings,
       customFields: fields.values, customFieldWarnings: fields.warnings,
       analytics: campaignAnalytics(c, es, standalone),
+      historyEntities: [...new Map(historyEntities.filter(e => /^\d+$/.test(e.id)).map(e => [`${e.type}:${e.id}`, e])).values()],
+      historyStart: [c.created, ...related.map(e => e.created)].filter(Boolean).sort()[0] || null,
       link: `https://app.optimizely.com/v2/projects/${raw.project_id}/${standalone ? 'experiments' : 'campaigns'}/${c.id}${standalone ? '' : '/summary'}`,
     };
   });
-  return { schemaVersion: 6, projectId: String(raw.project_id), projectName: raw.project?.name || 'US/CA Web', fetchedAt: raw.retrieved_at || new Date().toISOString(), items: items.sort((a, b) => a.apiName.localeCompare(b.apiName)) };
+  return { schemaVersion: 7, projectId: String(raw.project_id), projectName: raw.project?.name || 'US/CA Web', fetchedAt: raw.retrieved_at || new Date().toISOString(), items: items.sort((a, b) => a.apiName.localeCompare(b.apiName)) };
 }
 module.exports = { summarize, isWelcome, walk };

@@ -42,7 +42,7 @@ test('parent fields, inherited fields, standalone tests and conflicts resolve wi
   assert.equal(result.owner,'Saved owner');assert.equal(result.warnings.length,1);
   assert.equal(customFields({custom_field_values:{assignment:''}},experiences).values.assignment,'');
   const raw={project_id:'1',campaigns:[{id:1,status:'running',custom_field_values:{'campaign-descriptive-name':'Campaign name'}}],experiments:[{id:2,campaign_id:1,status:'running',custom_field_values:{'user-story':123}},{id:3,campaign_id:999,type:'a/b',status:'running',custom_field_values:{assignment:'Test owner','user-story':456}}],pages:[],audiences:[]};
-  const snapshot=summarize(raw);assert.equal(snapshot.schemaVersion,6);
+  const snapshot=summarize(raw);assert.equal(snapshot.schemaVersion,7);
   assert.equal(resolveFields(snapshot.items.find(c=>c.id==='1')).story,'User Story #123');
   const standalone=resolveFields(snapshot.items.find(c=>c.id==='3'));assert.equal(standalone.owner,'Test owner');assert.equal(standalone.story,'User Story #456');
 });

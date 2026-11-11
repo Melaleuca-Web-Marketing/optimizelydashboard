@@ -13,6 +13,7 @@ const { resolveFields, designUrl } = require('./fields');
 const { createOptimizelyClient } = require('./optimizely');
 const { publicOrigin, sameOrigin } = require('./deployment');
 const { PROJECTS } = require('./projects');
+const { HistoryStore } = require('./history');
 function loadEnv(file) {
   if (!fs.existsSync(file)) return;
   for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
@@ -33,6 +34,10 @@ const workspaces = new Map(projectDefinitions.map(project => {
   const legacy = project.id === '5443948697616384';
   const workspace = { project, annotations: {}, annotationQueue: Promise.resolve(), annotationsFile: path.join(dataDir, legacy ? 'annotations.json' : `annotations-${project.id}.json`) };
   const client = createOptimizelyClient({ token: process.env.OPTIMIZELY_TOKEN, projectId: project.id, projectName: project.name, apiBase: process.env.OPTIMIZELY_API_BASE });
+  workspace.history = new HistoryStore({ directory: path.join(dataDir, 'history'), projectId: project.id, loadPage: async query => {
+    if (!process.env.OPTIMIZELY_TOKEN) { const e = new Error('Missing token');e.publicMessage = 'Set OPTIMIZELY_TOKEN to load history.';throw e; }
+    return client.historyPage(query);
+  } });
   workspace.cache = new SnapshotCache({ file: path.join(dataDir, legacy ? 'snapshot.json' : `snapshot-${project.id}.json`), ttlMs: ttl, load: async () => {
     if (!process.env.OPTIMIZELY_TOKEN) { const e = new Error('Missing token'); e.publicMessage = 'Set OPTIMIZELY_TOKEN in the dashboard .env to enable live updates.'; throw e; }
     return client.snapshot();
@@ -48,7 +53,7 @@ async function initializeWorkspace(workspace) {
   const source = id === projectId && process.env.DASHBOARD_SEED_FILE || path.join(__dirname, '..', 'outputs', 'optimizely-active-20261109', `api-data-${id}.json`);
   try { const raw = JSON.parse(await fsp.readFile(source, 'utf8')); if (String(raw.project_id) === id) seed = summarize(raw); } catch {}
   await workspace.cache.initialize(seed);
-  if (workspace.cache.snapshot?.projectId !== id || ![2, 3, 4, 5, 6].includes(workspace.cache.snapshot?.schemaVersion)) workspace.cache.snapshot = seed;
+  if (workspace.cache.snapshot?.projectId !== id || ![2, 3, 4, 5, 6, 7].includes(workspace.cache.snapshot?.schemaVersion)) workspace.cache.snapshot = seed;
 }
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
 async function body(req) {
@@ -71,6 +76,15 @@ const server = http.createServer(async (req, res) => {
         const annotation = workspace.annotations[item.id] || {};
         return { ...item, annotation, display: resolveFields(item, annotation) };
       }), sync: cache.status() });
+    }
+    const historyMatch = url.pathname.match(/^\/api\/history\/(\d{1,20})$/);
+    if (historyMatch && ['GET', 'POST'].includes(req.method)) {
+      if (!sameOrigin(req, allowedOrigin)) return json(res, 403, { error: 'History must be requested from this dashboard.' });
+      const item = cache.snapshot?.items.find(i => i.id === historyMatch[1]);
+      if (!item) return json(res, 404, { error: 'Campaign unavailable. Refresh the campaign list first.' });
+      const input = req.method === 'POST' ? await body(req) : {};
+      if (req.method === 'POST' && !['refresh', 'older'].includes(input.action)) return json(res, 400, { error: 'Choose a valid history action.' });
+      return json(res, 200, await workspace.history.read(item, { action: input.action || 'read', cursor: typeof input.cursor === 'string' ? input.cursor : '' }));
     }
     if (url.pathname === '/api/refresh' && req.method === 'POST') {
       if (!sameOrigin(req, allowedOrigin)) return json(res, 403, { error: 'Refresh must come from this dashboard.' });
@@ -106,7 +120,7 @@ server.on('error', err => { console.error(err.code === 'EADDRINUSE' ? `Port ${po
 async function main() {
   await Promise.all([...workspaces.values()].map(initializeWorkspace));
   server.listen(port, '127.0.0.1', () => console.log(`Active campaigns dashboard: http://127.0.0.1:${port}`));
-  for (const { cache } of workspaces.values()) cache.refresh(Boolean(cache.snapshot && cache.snapshot.schemaVersion < 6)).catch(() => {});
+  for (const { cache } of workspaces.values()) cache.refresh(Boolean(cache.snapshot && cache.snapshot.schemaVersion < 7)).catch(() => {});
   const timer = setInterval(() => { for (const { cache } of workspaces.values()) cache.refresh().catch(() => {}); }, 60000); timer.unref();
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { clearInterval(timer); server.close(() => process.exit(0)); });
 }

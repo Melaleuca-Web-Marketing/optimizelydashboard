@@ -44,6 +44,6 @@ test('external code is reported as uninspected and code payloads are never execu
 });
 test('model stores only extracted analytics values and preserves variation attribution',()=>{
   const raw={project_id:'1',campaigns:[],pages:[],audiences:[],experiments:[{id:10,name:'Standalone',type:'a/b',status:'running',variations:[{name:'B',weight:10000,actions:[{changes:[{type:'insert_html',value:`<b data-opt-promo='${JSON.stringify(promo)}'>Large private HTML</b>`}]}]}]}]};
-  const out=summarize(raw);assert.equal(out.schemaVersion,6);assert.equal(out.items[0].analytics.records[0].variationName,'B');
+  const out=summarize(raw);assert.equal(out.schemaVersion,7);assert.equal(out.items[0].analytics.records[0].variationName,'B');
   assert.equal(JSON.stringify(out).includes('Large private HTML'),false);
 });
