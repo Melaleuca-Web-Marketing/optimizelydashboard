@@ -12,6 +12,7 @@ const { summarize } = require('./model');
 const { resolveFields, designUrl } = require('./fields');
 const { createOptimizelyClient } = require('./optimizely');
 const { publicOrigin, sameOrigin } = require('./deployment');
+const { PROJECTS } = require('./projects');
 function loadEnv(file) {
   if (!fs.existsSync(file)) return;
   for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
@@ -26,10 +27,7 @@ const number = (value, fallback, min, max) => { const n = Number(value || fallba
 const port = number(process.env.DASHBOARD_PORT, 4243, 1, 65535);
 const ttl = number(process.env.DASHBOARD_CACHE_MINUTES, 15, 1, 1440) * 60000;
 const dataDir = path.join(__dirname, 'data');
-const projectDefinitions = [
-  { id: '5443948697616384', name: 'US/CA Web · Melaleuca', market: 'us-ca' },
-  { id: '5730256506585088', name: 'MX Web - Melaleuca', market: 'mx' }
-];
+const projectDefinitions = [...PROJECTS];
 if (!projectDefinitions.some(p => p.id === projectId)) projectDefinitions.unshift({ id: projectId, name: 'Optimizely project ' + projectId, market: 'all' });
 const workspaces = new Map(projectDefinitions.map(project => {
   const legacy = project.id === '5443948697616384';

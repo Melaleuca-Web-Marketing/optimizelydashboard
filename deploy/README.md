@@ -24,7 +24,7 @@ Then run:
 bash scripts/deploy.sh
 ```
 
-There are no npm dependencies or build step. Node 22.19+, Python 3.8+, PM2, curl, and sudo access to Nginx are required. The script runs tests, checks the existing Nginx configuration, starts/reloads only the named PM2 process, verifies both project data endpoints, installs the proxy route, validates Nginx, reloads Nginx, and saves the PM2 process list. A sync failure stops deployment before changing Nginx. Existing PM2 apps are not restarted. Verify the host's PM2 boot service separately if restart-on-reboot has not been configured.
+There are no npm dependencies or build step. Node 22.19+, Python 3.8+, PM2, curl, and sudo access to Nginx are required. The script runs tests, checks the existing Nginx configuration, starts/reloads only the named PM2 process, verifies every configured project data endpoint, installs the proxy route, validates Nginx, reloads Nginx, and saves the PM2 process list. A sync failure stops deployment before changing Nginx. Existing PM2 apps are not restarted. Verify the host's PM2 boot service separately if restart-on-reboot has not been configured.
 
 ## Shared Nginx configuration
 
@@ -52,6 +52,6 @@ curl --fail --silent --show-error https://usifhqtsagrqt01.melaleuca.net/campaign
 pm2 status optimizely-dashboard
 ```
 
-Open the public URL and verify US/CA and MX, Campaigns/Analytics selection after refresh, static styling, Sync now, and exports. Use normal corporate CA trust if curl or Node reports a certificate trust failure; do not disable certificate verification.
+Open the public URL and verify US/CA, MX and EU, Campaigns/Analytics selection after refresh, static styling, Sync now, and exports. Use normal corporate CA trust if curl or Node reports a certificate trust failure; do not disable certificate verification.
 
 For updates, run `git pull --ff-only` and `bash scripts/deploy.sh`. Tokens, snapshots, and saved fallback edits remain in ignored local files. Back up `data/` separately if local edits must be recoverable.

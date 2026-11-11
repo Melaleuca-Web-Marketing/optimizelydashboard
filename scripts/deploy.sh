@@ -37,11 +37,13 @@ if [[ ${healthy} != true ]]; then
   exit 1
 fi
 # Confirm the actual data endpoints, not just the running process. No values are printed.
-for project in 5443948697616384 5730256506585088; do
+project_ids=$(curl --fail --silent --show-error http://127.0.0.1:17821/api/projects |
+  node -e 'let text="";process.stdin.on("data",c=>text+=c);process.stdin.on("end",()=>{const d=JSON.parse(text);if(!d.projects?.length||d.projects.some(p=>!/^\d+$/.test(p.id)))throw Error("Invalid project list");console.log(d.projects.map(p=>p.id).join("\n"))})')
+for project in ${project_ids}; do
   curl --fail --silent --show-error --max-time 180 "http://127.0.0.1:17821/api/dashboard?project_id=${project}" |
     node -e 'let text="";process.stdin.on("data",c=>text+=c);process.stdin.on("end",()=>{const d=JSON.parse(text);if(!Array.isArray(d.items)||d.sync?.error)throw Error("Project sync failed; inspect dashboard sync status before publishing")})'
 done
 sudo python3 scripts/install-nginx.py --apply
 pm2 save
 printf 'Deployed: https://usifhqtsagrqt01.melaleuca.net/campaign-monitor/\n'
-printf 'Verify both projects have completed their first Optimizely sync in the browser.\n'
+printf 'Verify all projects have completed their first Optimizely sync in the browser.\n'

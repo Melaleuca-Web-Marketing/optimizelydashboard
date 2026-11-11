@@ -35,7 +35,7 @@ test('HTTP server accepts proxied HTTPS edits without relaxing the upstream Host
   const base = 'http://127.0.0.1:' + server.address().port;
   const origin = 'https://usifhqtsagrqt01.melaleuca.net';
   let r = await fetch(base + '/api/projects');
-  assert.equal(r.status, 200);assert.equal((await r.json()).projects.length, 2);
+  assert.equal(r.status, 200);assert.equal((await r.json()).projects.length, 3);
   r = await fetch(base + '/api/refresh', { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(r.status, 202);
   r = await fetch(base + '/api/refresh', { method: 'POST', headers: { Origin: 'https://other.example', 'Content-Type': 'application/json' }, body: '{}' });

@@ -1,5 +1,6 @@
 const { customFields } = require('./fields');
 const { campaignAnalytics } = require('./analytics');
+const { PROJECTS } = require('./projects');
 const uniq = values => [...new Set(values.filter(v => v !== undefined && v !== null && v !== ''))];
 function parse(value) { if (typeof value !== 'string') return value; try { return JSON.parse(value); } catch { return value; } }
 function walk(value, fn, negative = false) {
@@ -74,14 +75,15 @@ function summarize(raw) {
     const environments = new Set();
     for (const value of positiveUrls) {
       if (/^https?:\/\/[^/]*(uat|preview|staging|localhost)/i.test(value)) environments.add('uat');
-      else if (/^https?:\/\/(www|ca|mx|mexico)\.melaleuca\.com(?:\/|$)/i.test(value)) environments.add('production');
+      else if (/^https?:\/\/(www|ca|mx|mexico|ie|uk|pl|de|nl|lt)\.melaleuca\.com(?:\/|$)/i.test(value)) environments.add('production');
       else environments.add('unscoped');
     }
     const group = es.some(e => isWelcome(e, audiences)) ? 'new-welcome' : 'general';
     const explicitTenured = positiveNames.some(n => /tenured/i.test(n || ''));
     const starts = es.map(e => e.earliest).filter(Boolean).sort();
     const localeValues = uniq(locales);
-    const region = localeValues.some(l => /^esmx$/i.test(l)) || String(raw.project_id) === '5730256506585088' ? 'mx' : localeValues.some(l => /^(enus|esus|enca|frca)$/i.test(l)) || environments.has('production') ? 'us-ca' : localeValues.length ? 'other' : 'unknown';
+    const projectMarket = PROJECTS.find(p => p.id === String(raw.project_id))?.market;
+    const region = projectMarket === 'eu' ? 'eu' : localeValues.some(l => /^esmx$/i.test(l)) || projectMarket === 'mx' ? 'mx' : localeValues.some(l => /^(enus|esus|enca|frca)$/i.test(l)) || environments.has('production') ? 'us-ca' : localeValues.length ? 'other' : 'unknown';
     const warnings = [];
     if (!es.length) warnings.push('Running campaign has no running experiences in this snapshot.');
     if (missing.length) warnings.push(`${missing.length} referenced experiences were missing from the API list.`);
