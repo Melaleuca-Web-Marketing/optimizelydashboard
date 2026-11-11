@@ -1,6 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { atomicJson } = require('./cache');
+const { compareHistoryAnalytics } = require('./analytics-history');
 const DAY = 86400000;
 const text = (value, max = 4000) => (typeof value === 'string' ? value : JSON.stringify(value) ?? '').slice(0, max);
 function normalizeChanges(rows, projectId, entities) {
@@ -9,6 +10,7 @@ function normalizeChanges(rows, projectId, entities) {
     id: String(r.id), created: r.created, action: text(r.change_type, 80), summary: text(r.summary, 1000), source: text(r.source, 80),
     actor: text(r.user?.display_name || [r.user?.first_name, r.user?.last_name].filter(Boolean).join(' ') || r.user?.email || 'Unknown user', 200),
     entity: { id: String(r.entity.id), type: r.entity.type, name: text(r.entity.name, 250), deleted: Boolean(r.entity.is_deleted) },
+    analyticsDiff: compareHistoryAnalytics(r),
     changes: (Array.isArray(r.changes) ? r.changes : []).slice(0, 30).map(c => {
       const field = { property: text(c.property, 200), description: text(c.description, 500) };
       for (const key of ['before', 'after']) {

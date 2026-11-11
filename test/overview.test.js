@@ -90,3 +90,21 @@ test('history summaries and code diffs are escaped and absent values remain dist
   assert.match(html,/&lt;Person&gt;/);assert.match(html,/Not set/);assert.match(html,/value shortened/);
   assert.doesNotMatch(html,/<script>|<img/);
 });
+
+test('history analytics filter shows semantic comparisons safely and keeps ordinary history available', () => {
+  const { run, context, elements } = setup();
+  const record={id:'1',created:'2026-11-01T00:00:00Z',actor:'Person',action:'update',summary:'Tracking edit',entity:{type:'experiment',name:'Experience'},source:'ui',changes:[]};
+  context.historyData={records:[{...record,analyticsDiff:{items:[{kind:'changed',attribute:'data-opt-promo',location:'#hero',property:'variations',fields:[{key:'creative',before:'<Old>',after:'<New>'}]}],warnings:[]}},{...record,id:'2',summary:'Renamed campaign',analyticsDiff:{items:[],warnings:[]}}]};
+  run("document.getElementById('historySearch').value='';historyAnalyticsOnly=true;renderHistoryRecords(historyData)");
+  let html=elements.get('historyRecords').innerHTML;
+  assert.match(html,/Analytics changed/);assert.match(html,/&lt;Old&gt;/);assert.match(html,/&lt;New&gt;/);assert.doesNotMatch(html,/Renamed campaign/);
+  run('historyAnalyticsOnly=false;renderHistoryRecords(historyData)');
+  assert.match(elements.get('historyRecords').innerHTML,/Renamed campaign/);
+});
+
+test('old history cache requests a manual refresh for analytics comparisons without trying to re-fetch it', () => {
+  const { run, context, elements } = setup();
+  context.historyData={records:[{created:'2026-11-01',actor:'Person',action:'update',summary:'Old cached entry',entity:{type:'campaign',name:'Campaign'},source:'ui',changes:[]}]};
+  run("document.getElementById('historySearch').value='';renderHistory(historyData)");
+  assert.match(elements.get('historyStatus').textContent,/cached entries predate analytics comparisons/);
+});
