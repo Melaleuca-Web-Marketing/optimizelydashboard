@@ -12,7 +12,7 @@ const { summarize } = require('./model');
 const { resolveFields, designUrl } = require('./fields');
 const { createOptimizelyClient } = require('./optimizely');
 const { publicOrigin, sameOrigin } = require('./deployment');
-const { PROJECTS } = require('./projects');
+const { PROJECTS, SECURITY_PROJECTS } = require('./projects');
 const { HistoryStore } = require('./history');
 const { runSecurityScan } = require('./security');
 function loadEnv(file) {
@@ -43,12 +43,18 @@ const workspaces = new Map(projectDefinitions.map(project => {
     if (!process.env.OPTIMIZELY_TOKEN) { const e = new Error('Missing token'); e.publicMessage = 'Set OPTIMIZELY_TOKEN in the dashboard .env to enable live updates.'; throw e; }
     return client.snapshot();
   } });
-  // Security scan of customer-authored code. Lazy: only runs when requested, never on the background timer.
-  workspace.security = new SnapshotCache({ file: path.join(dataDir, `security-${project.id}.json`), ttlMs: ttl, load: async () => {
-    if (!process.env.OPTIMIZELY_TOKEN) { const e = new Error('Missing token'); e.publicMessage = 'Set OPTIMIZELY_TOKEN in the dashboard .env to run the security scan.'; throw e; }
-    return runSecurityScan(client, project, workspace.security.snapshot);
-  } });
   return [project.id, workspace];
+}));
+// Security scans cover every Optimizely project in the account, independent of the campaign dashboard workspaces.
+// Lazy: only runs when requested, never on the background timer.
+const securityWorkspaces = new Map(SECURITY_PROJECTS.map(project => {
+  const client = createOptimizelyClient({ token: process.env.OPTIMIZELY_TOKEN, projectId: project.id, projectName: project.name, apiBase: process.env.OPTIMIZELY_API_BASE });
+  const scan = { project };
+  scan.cache = new SnapshotCache({ file: path.join(dataDir, `security-${project.id}.json`), ttlMs: ttl, load: async () => {
+    if (!process.env.OPTIMIZELY_TOKEN) { const e = new Error('Missing token'); e.publicMessage = 'Set OPTIMIZELY_TOKEN in the dashboard .env to run the security scan.'; throw e; }
+    return runSecurityScan(client, project, scan.cache.snapshot);
+  } });
+  return [project.id, scan];
 }));
 async function initializeWorkspace(workspace) {
   const id = workspace.project.id;
@@ -59,7 +65,6 @@ async function initializeWorkspace(workspace) {
   const source = id === projectId && process.env.DASHBOARD_SEED_FILE || path.join(__dirname, '..', 'outputs', 'optimizely-active-20261109', `api-data-${id}.json`);
   try { const raw = JSON.parse(await fsp.readFile(source, 'utf8')); if (String(raw.project_id) === id) seed = summarize(raw); } catch {}
   await workspace.cache.initialize(seed);
-  await workspace.security.initialize(null);
   if (workspace.cache.snapshot?.projectId !== id || ![2, 3, 4, 5, 6, 7].includes(workspace.cache.snapshot?.schemaVersion)) workspace.cache.snapshot = seed;
 }
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
@@ -74,6 +79,21 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   try {
     if (url.pathname === '/api/projects' && req.method === 'GET') return json(res, 200, { projects: projectDefinitions, defaultProjectId: projectId });
+    if (url.pathname === '/api/security/projects' && req.method === 'GET') return json(res, 200, { projects: SECURITY_PROJECTS, defaultProjectId: projectId });
+    if (url.pathname === '/api/security' || url.pathname === '/api/security/refresh') {
+      const scan = securityWorkspaces.get(url.searchParams.get('project_id') || projectId);
+      if (!scan) return json(res, 400, { error: 'Choose an available Optimizely project.' });
+      if (url.pathname === '/api/security' && req.method === 'GET') {
+        const { items, ...report } = await scan.cache.read();
+        return json(res, 200, { ...report, findings: items, sync: scan.cache.status() });
+      }
+      if (url.pathname === '/api/security/refresh' && req.method === 'POST') {
+        if (!sameOrigin(req, allowedOrigin)) return json(res, 403, { error: 'Refresh must come from this dashboard.' });
+        await body(req); scan.cache.refresh(true).catch(() => {});
+        return json(res, 202, scan.cache.status());
+      }
+      return json(res, 405, { error: 'Method not allowed' });
+    }
     const workspace = workspaces.get(url.searchParams.get('project_id') || projectId);
     if (!workspace) return json(res, 400, { error: 'Choose an available dashboard project.' });
     const cache = workspace.cache;
@@ -92,15 +112,6 @@ const server = http.createServer(async (req, res) => {
       const input = req.method === 'POST' ? await body(req) : {};
       if (req.method === 'POST' && !['refresh', 'older'].includes(input.action)) return json(res, 400, { error: 'Choose a valid history action.' });
       return json(res, 200, await workspace.history.read(item, { action: input.action || 'read', cursor: typeof input.cursor === 'string' ? input.cursor : '' }));
-    }
-    if (url.pathname === '/api/security' && req.method === 'GET') {
-      const { items, ...report } = await workspace.security.read();
-      return json(res, 200, { ...report, findings: items, sync: workspace.security.status() });
-    }
-    if (url.pathname === '/api/security/refresh' && req.method === 'POST') {
-      if (!sameOrigin(req, allowedOrigin)) return json(res, 403, { error: 'Refresh must come from this dashboard.' });
-      await body(req); workspace.security.refresh(true).catch(() => {});
-      return json(res, 202, workspace.security.status());
     }
     if (url.pathname === '/api/refresh' && req.method === 'POST') {
       if (!sameOrigin(req, allowedOrigin)) return json(res, 403, { error: 'Refresh must come from this dashboard.' });
@@ -135,6 +146,7 @@ const server = http.createServer(async (req, res) => {
 server.on('error', err => { console.error(err.code === 'EADDRINUSE' ? `Port ${port} is already in use. Set DASHBOARD_PORT to another port.` : 'Could not start the local dashboard.'); process.exitCode = 1; });
 async function main() {
   await Promise.all([...workspaces.values()].map(initializeWorkspace));
+  await Promise.all([...securityWorkspaces.values()].map(scan => scan.cache.initialize(null)));
   server.listen(port, '127.0.0.1', () => console.log(`Active campaigns dashboard: http://127.0.0.1:${port}`));
   for (const { cache } of workspaces.values()) cache.refresh(Boolean(cache.snapshot && cache.snapshot.schemaVersion < 7)).catch(() => {});
   const timer = setInterval(() => { for (const { cache } of workspaces.values()) cache.refresh().catch(() => {}); }, 60000); timer.unref();

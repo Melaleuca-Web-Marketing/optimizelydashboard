@@ -73,3 +73,12 @@ test('runSecurityScan merges snippet findings, tracks change vs previous scan, a
   const failed = await runSecurityScan({ ...base, snippet: async () => { const e = new Error('x'); e.publicMessage = 'down'; throw e; } }, project);
   assert.equal(failed.snippet.error, 'down');
 });
+
+const { PROJECTS, SECURITY_PROJECTS } = require('../projects');
+test('security project list covers every dashboard project, with unique numeric ids', () => {
+  const ids = SECURITY_PROJECTS.map(p => p.id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.ok(ids.every(id => /^\d+$/.test(id)));
+  for (const p of PROJECTS) assert.ok(ids.includes(p.id), p.name);
+  assert.equal(PROJECTS.length, 3);
+});

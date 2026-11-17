@@ -11,14 +11,14 @@ for (const file of [path.join(__dirname, '..', '.env'), path.join(__dirname, '..
     const m = line.match(/^\s*([A-Za-z_]\w*)\s*=\s*(.*?)\s*$/); if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^(['"])(.*)\1$/, '$2');
   }
 }
-const { PROJECTS } = require('../projects');
+const { SECURITY_PROJECTS } = require('../projects');
 const { createOptimizelyClient } = require('../optimizely');
 const { runSecurityScan } = require('../security');
 (async () => {
   if (!process.env.OPTIMIZELY_TOKEN) { console.error('OPTIMIZELY_TOKEN is not set.'); process.exit(2); }
   const wanted = process.argv.slice(2);
   let critical = 0;
-  for (const project of PROJECTS.filter(p => !wanted.length || wanted.includes(p.id))) {
+  for (const project of SECURITY_PROJECTS.filter(p => !wanted.length || wanted.includes(p.id))) {
     const client = createOptimizelyClient({ token: process.env.OPTIMIZELY_TOKEN, projectId: project.id, projectName: project.name });
     const r = await runSecurityScan(client, project);
     critical += r.counts.critical;

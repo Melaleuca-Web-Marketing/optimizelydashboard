@@ -55,7 +55,7 @@ $('severity').onchange = render; $('hideArchived').onchange = render;
 $('project').onchange = () => { state.projectId = $('project').value; load(); };
 (async () => {
   try {
-    const r = await fetch('./api/projects'), data = await r.json();
+    const r = await fetch('./api/security/projects'), data = await r.json();
     for (const p of data.projects) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; $('project').append(o); }
     $('project').querySelector('option[value=""]')?.remove();
     state.projectId = data.defaultProjectId; $('project').value = state.projectId; load();
