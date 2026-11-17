@@ -63,6 +63,22 @@ function createOptimizelyClient({ token, projectId, projectName = 'US/CA Web · 
       if (target.origin !== base.origin || target.pathname !== url.pathname) throw new Error('Unexpected history pagination host');
     }
     return { records, hasMore: Boolean(next) || records.length === 50 };
+  }, async projectChanges({ start, end, maxPages = 20 }) {
+    // Project-wide change log (no entity filter): who changed what, and when. Bounded so a busy project cannot run away.
+    const records = []; let truncated = false;
+    for (let page = 1; page <= maxPages; page++) {
+      const url = new URL('changes', base);
+      url.searchParams.set('project_id', projectId); url.searchParams.set('per_page', '100'); url.searchParams.set('page', String(page));
+      url.searchParams.set('start_time', new Date(start).toISOString()); url.searchParams.set('end_time', new Date(end).toISOString());
+      const { data, headers } = await get(url);
+      const rows = Array.isArray(data) ? data : data?.results || data?.items;
+      if (!Array.isArray(rows)) throw new Error('Unexpected changes response');
+      records.push(...rows);
+      const more = Boolean(headers.get('link')?.match(/rel="next"/i)) || rows.length === 100;
+      if (!more) return { records, truncated };
+      if (page === maxPages) truncated = true;
+    }
+    return { records, truncated };
   }, async snippet({ maxBytes = 25 * 1024 * 1024 } = {}) {
     // The published snippet is what visitors load and includes the Project JavaScript, which the REST API does not expose.
     if (!/^\d+$/.test(String(projectId))) throw new Error('Invalid project id');

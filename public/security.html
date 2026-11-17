@@ -7,6 +7,11 @@
 <section class="intro"><div><h1>Code security scan.</h1><p>Experiment custom code, page activation code, extensions and the published snippet (which includes Project JavaScript), checked for the Optimizely Web compromise (<code>1688360.cc</code>, <code>atob(</code>) and other risky patterns. Findings show short excerpts only.</p></div><div class="sync-actions"><button id="scan" class="primary">Scan now <span aria-hidden="true">↻</span></button><div id="scanTime" class="sync-time">Not scanned yet</div></div></section>
 <div id="notice" class="notice" role="status" hidden></div>
 <section class="stats" aria-label="Scan totals"><div><span>Critical</span><strong id="statCritical">—</strong><small>Known indicators</small></div><div><span>High</span><strong id="statHigh">—</strong><small>Decode, eval, injection</small></div><div><span>Medium</span><strong id="statMedium">—</strong><small>Network, cookies, card fields</small></div><div><span>Scanned</span><strong id="statScanned">—</strong><small id="statScannedDetail">Code sources</small></div></section>
+<section class="panel" aria-label="Changes over time">
+<div class="panel-heading"><div><h2>Changes since the last scan</h2><span id="driftLabel" class="muted">No baseline yet</span></div></div>
+<div class="table-scroll"><table><thead><tr><th>Change</th><th>Type</th><th>Name</th><th>Changed by (Optimizely change history)</th></tr></thead><tbody id="driftRows"><tr><td colspan="4">Loading…</td></tr></tbody></table></div>
+<details style="padding:8px 20px 14px"><summary>Recent Optimizely change history <span id="recentCount" class="muted"></span></summary><div class="table-scroll"><table><thead><tr><th>When</th><th>Who</th><th>Via</th><th>Action</th><th>Item</th></tr></thead><tbody id="recentRows"></tbody></table></div></details>
+</section>
 <section class="panel" aria-label="Findings">
 <div class="panel-heading"><div><h2>Findings</h2><span id="projectLabel" class="muted">Loading project</span></div></div>
 <div id="snippetInfo" class="muted" style="padding:0 20px 12px" hidden></div>

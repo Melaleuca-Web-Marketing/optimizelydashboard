@@ -5,8 +5,35 @@ const state = { projectId: '', data: null };
 const endpoint = path => '.' + path + '?project_id=' + encodeURIComponent(state.projectId);
 function toast(message) { const t = $('toast'); t.textContent = message; t.hidden = false; setTimeout(() => { t.hidden = true; }, 4000); }
 function cell(text, className) { const td = document.createElement('td'); td.textContent = text; if (className) td.className = className; return td; }
+const who = by => by.map(b => `${b.user} via ${b.source || '?'} (${b.action}, ${new Date(b.at).toLocaleString()})`).join('; ');
+function explainText(x) {
+  if (!x) return '';
+  if (x.status === 'explained') return ' · publish matches change history: ' + who(x.by);
+  if (x.status === 'unexplained') return ' · NO matching change-history entry for this modification time: investigate';
+  if (x.status === 'outside-window') return ' · last modified before the change-history window, so it cannot be matched';
+  return '';
+}
+function row(...cells) { const tr = document.createElement('tr'); for (const c of cells) tr.append(cell(c)); return tr; }
+function renderDrift(d) {
+  const dr = d.drift, body = $('driftRows'); body.replaceChildren();
+  if (!dr) { $('driftLabel').textContent = 'Not available for this scan'; return; }
+  const c = dr.counts;
+  $('driftLabel').textContent = (!dr.baselineAt ? 'No baseline yet: this scan becomes the baseline' : `${c.added} added · ${c.changed} changed · ${c.removed} removed · ${c.unexplained} without a change-history entry (baseline ${new Date(dr.baselineAt).toLocaleString()})`)
+    + (dr.historyAvailable ? '' : ' · change history unavailable: ' + (dr.historyError || 'unknown reason')) + (dr.historyTruncated ? ' · change history truncated' : '');
+  const items = [...dr.changed.map(i => ['Changed', i]), ...dr.added.map(i => ['Added', i]), ...dr.removed.map(i => ['Removed', i])];
+  if (!items.length) { const tr = row(dr.baselineAt ? 'No code changes since the baseline.' : 'Run another scan to see changes.'); tr.firstChild.colSpan = 4; body.append(tr); }
+  for (const [label, i] of items) {
+    const tr = row(label, i.type, `${i.name} (${i.id})${i.status ? ' · ' + i.status : ''}`, i.by.length ? who(i.by) : i.unexplained ? 'NO CHANGE-HISTORY ENTRY: investigate' : label === 'Removed' ? 'n/a (removed)' : 'change history unavailable');
+    if (i.unexplained) { tr.firstChild.style.fontWeight = '700'; tr.lastChild.style.fontWeight = '700'; }
+    body.append(tr);
+  }
+  const recent = d.recentChanges || [], rb = $('recentRows'); rb.replaceChildren();
+  $('recentCount').textContent = recent.length ? `(${recent.length})` : '';
+  for (const e of recent.slice(0, 100)) rb.append(row(new Date(e.at).toLocaleString(), e.user, e.source, e.action, `${e.entityType}: ${e.entityName} (${e.entityId})`));
+}
 function render() {
   const d = state.data; if (!d) return;
+  renderDrift(d);
   $('statCritical').textContent = d.counts.critical; $('statHigh').textContent = d.counts.high; $('statMedium').textContent = d.counts.medium;
   $('statScanned').textContent = d.scannedSources;
   $('statScannedDetail').textContent = `${d.scannedExperiments} experiments · ${d.scannedPages} pages`;
@@ -19,6 +46,7 @@ function render() {
     info.hidden = false;
     info.textContent = sn.error ? 'Published snippet: ' + sn.error
       : `Published snippet: ${(sn.bytes / 1048576).toFixed(2)} MB · SHA-256 ${sn.sha256.slice(0, 12)}… · last modified ${sn.lastModified || 'unknown'}`
+        + explainText(sn.explanation)
         + (sn.changedSinceLastScan === true ? ' · CHANGED since the previous scan (' + new Date(sn.previousScannedAt).toLocaleString() + '); expected if experiments were published' : sn.changedSinceLastScan === false ? ' · unchanged since the previous scan' : ' · first scan, no baseline yet');
   }
   const min = RANK[$('severity').value], hideArchived = $('hideArchived').checked;

@@ -119,9 +119,19 @@ function scanProject(raw, options) {
   return { scannedSources: sources.length, scannedExperiments: raw.experiments?.length || 0, scannedPages: raw.pages?.length || 0, scannedExtensions: raw.extensions?.length || 0, scannedAudiences: raw.audiences?.length || 0, counts, findings };
 }
 // Full scan for one project: API-visible code plus the published snippet. A snippet failure never hides the API results.
-async function runSecurityScan(client, project, previous = null) {
+const { buildDrift, compactChanges } = require('./drift');
+async function runSecurityScan(client, project, previous = null, { historyDays = 45, now = Date.now } = {}) {
   const raw = await client.securitySources();
   let result = scanProject(raw);
+  // Change log is best-effort: if it is unavailable we skip the "unexplained" checks rather than raise false alarms.
+  let history = null, historyError = null;
+  if (typeof client.projectChanges === 'function') {
+    try {
+      const end = now(), start = end - historyDays * 86400000;
+      const r = await client.projectChanges({ start, end });
+      history = { events: compactChanges(r.records), windowStart: start, truncated: r.truncated };
+    } catch (err) { historyError = err.publicMessage || 'The Optimizely change history could not be loaded.'; }
+  }
   let snippet = null;
   try {
     const s = await client.snippet();
@@ -129,6 +139,9 @@ async function runSecurityScan(client, project, previous = null) {
     snippet = { bytes: s.bytes, sha256: s.sha256, lastModified: s.lastModified, etag: s.etag, changedSinceLastScan: prior?.sha256 ? prior.sha256 !== s.sha256 : null, previousSha256: prior?.sha256 || null, previousScannedAt: previous?.fetchedAt || null };
     result = mergeFindings(result, snippetFindings(project.id, s.text));
   } catch (err) { snippet = { error: err.publicMessage || 'The published snippet could not be scanned.' }; }
-  return { schemaVersion: 2, projectId: project.id, projectName: project.name, fetchedAt: new Date().toISOString(), apiCalls: raw.apiCalls, snippet, ...result, items: result.findings };
+  const { drift, fingerprints, findings: driftFindings } = buildDrift({ sources: collectSources(raw), previous, history, snippet });
+  drift.historyError = historyError;
+  result = mergeFindings(result, driftFindings);
+  return { schemaVersion: 3, projectId: project.id, projectName: project.name, fetchedAt: new Date().toISOString(), apiCalls: raw.apiCalls, snippet, drift, fingerprints, recentChanges: history ? history.events : [], ...result, items: result.findings };
 }
 module.exports = { runSecurityScan, scanCode, scanSnippet, snippetFindings, mergeFindings, scanProject, collectSources, IOC_DOMAINS };

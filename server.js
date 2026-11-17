@@ -84,7 +84,7 @@ const server = http.createServer(async (req, res) => {
       const scan = securityWorkspaces.get(url.searchParams.get('project_id') || projectId);
       if (!scan) return json(res, 400, { error: 'Choose an available Optimizely project.' });
       if (url.pathname === '/api/security' && req.method === 'GET') {
-        const { items, ...report } = await scan.cache.read();
+        const { items, fingerprints, ...report } = await scan.cache.read();
         return json(res, 200, { ...report, findings: items, sync: scan.cache.status() });
       }
       if (url.pathname === '/api/security/refresh' && req.method === 'POST') {
