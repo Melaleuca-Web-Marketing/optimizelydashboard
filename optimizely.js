@@ -78,11 +78,11 @@ function createOptimizelyClient({ token, projectId, projectName = 'US/CA Web · 
   }, async securitySources() {
     const before = calls;
     const project = (await get(new URL('projects/' + encodeURIComponent(projectId), base))).data;
-    const [experiments, pages] = await Promise.all(['experiments', 'pages'].map(list));
+    const [experiments, pages, audiences] = await Promise.all(['experiments', 'pages', 'audiences'].map(list));
     // Extensions are optional (not every plan/project exposes them); a failure must not hide the rest of the scan.
     let extensions = [];
     try { extensions = await list('extensions'); } catch (err) { if (!/HTTP (400|403|404)/.test(err.message)) throw err; }
-    return { project, experiments, pages, extensions, apiCalls: calls - before };
+    return { project, experiments, pages, audiences, extensions, apiCalls: calls - before };
   }, async snapshot() {
     const before = calls;
     const [campaigns, experiments, pages, audiences] = await Promise.all(['campaigns', 'experiments', 'pages', 'audiences'].map(list));

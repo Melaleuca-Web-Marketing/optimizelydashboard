@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const RANK = { low: 0, medium: 1, high: 2, critical: 3 };
-const WHERE = { 'project-javascript': 'Project JavaScript', 'experiment-code': 'Experiment code', 'page-activation': 'Page activation code', extension: 'Extension', 'published-snippet': 'Published snippet (incl. Project JS)' };
+const WHERE = { 'project-javascript': 'Project JavaScript', 'experiment-code': 'Experiment code', 'page-activation': 'Page activation code', extension: 'Extension', 'published-snippet': 'Published snippet (incl. Project JS)', 'widget-config': 'Widget settings', 'audience-code': 'Audience JavaScript condition' };
 const state = { projectId: '', data: null };
 const endpoint = path => '.' + path + '?project_id=' + encodeURIComponent(state.projectId);
 function toast(message) { const t = $('toast'); t.textContent = message; t.hidden = false; setTimeout(() => { t.hidden = true; }, 4000); }
@@ -27,7 +27,7 @@ function render() {
   if (!rows.length) { const tr = document.createElement('tr'); tr.append(cell(d.findings.length ? 'No findings at this severity.' : 'No findings. Nothing matched the scan rules.')); tr.firstChild.colSpan = 5; body.append(tr); return; }
   for (const f of rows) {
     const tr = document.createElement('tr');
-    const where = (WHERE[f.kind] || f.kind) + (f.variation ? ' · ' + f.variation : '');
+    const where = (WHERE[f.kind] || f.kind) + (f.variation ? ' · ' + f.variation : '') + (f.kind === 'extension' && f.field ? ' · ' + f.field : '');
     const name = f.entityName + (f.entityId ? ' (' + f.entityId + ')' : '') + (f.status ? ' · ' + f.status : '') + (f.archived ? ' · archived' : '');
     tr.append(cell(f.severity.toUpperCase(), 'sev-' + f.severity), cell(f.label), cell(where), cell(name), cell(f.excerpt));
     tr.lastChild.style.fontFamily = 'monospace'; tr.lastChild.style.whiteSpace = 'pre-wrap'; tr.lastChild.style.wordBreak = 'break-all';
