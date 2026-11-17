@@ -14,6 +14,7 @@ const { createOptimizelyClient } = require('./optimizely');
 const { publicOrigin, sameOrigin } = require('./deployment');
 const { PROJECTS } = require('./projects');
 const { HistoryStore } = require('./history');
+const { scanProject } = require('./security');
 function loadEnv(file) {
   if (!fs.existsSync(file)) return;
   for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
@@ -42,6 +43,13 @@ const workspaces = new Map(projectDefinitions.map(project => {
     if (!process.env.OPTIMIZELY_TOKEN) { const e = new Error('Missing token'); e.publicMessage = 'Set OPTIMIZELY_TOKEN in the dashboard .env to enable live updates.'; throw e; }
     return client.snapshot();
   } });
+  // Security scan of customer-authored code. Lazy: only runs when requested, never on the background timer.
+  workspace.security = new SnapshotCache({ file: path.join(dataDir, `security-${project.id}.json`), ttlMs: ttl, load: async () => {
+    if (!process.env.OPTIMIZELY_TOKEN) { const e = new Error('Missing token'); e.publicMessage = 'Set OPTIMIZELY_TOKEN in the dashboard .env to run the security scan.'; throw e; }
+    const raw = await client.securitySources();
+    const result = scanProject(raw);
+    return { schemaVersion: 1, projectId: project.id, projectName: project.name, fetchedAt: new Date().toISOString(), apiCalls: raw.apiCalls, ...result, items: result.findings };
+  } });
   return [project.id, workspace];
 }));
 async function initializeWorkspace(workspace) {
@@ -53,6 +61,7 @@ async function initializeWorkspace(workspace) {
   const source = id === projectId && process.env.DASHBOARD_SEED_FILE || path.join(__dirname, '..', 'outputs', 'optimizely-active-20261109', `api-data-${id}.json`);
   try { const raw = JSON.parse(await fsp.readFile(source, 'utf8')); if (String(raw.project_id) === id) seed = summarize(raw); } catch {}
   await workspace.cache.initialize(seed);
+  await workspace.security.initialize(null);
   if (workspace.cache.snapshot?.projectId !== id || ![2, 3, 4, 5, 6, 7].includes(workspace.cache.snapshot?.schemaVersion)) workspace.cache.snapshot = seed;
 }
 function json(res, status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(value)); }
@@ -86,6 +95,15 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'POST' && !['refresh', 'older'].includes(input.action)) return json(res, 400, { error: 'Choose a valid history action.' });
       return json(res, 200, await workspace.history.read(item, { action: input.action || 'read', cursor: typeof input.cursor === 'string' ? input.cursor : '' }));
     }
+    if (url.pathname === '/api/security' && req.method === 'GET') {
+      const { items, ...report } = await workspace.security.read();
+      return json(res, 200, { ...report, findings: items, sync: workspace.security.status() });
+    }
+    if (url.pathname === '/api/security/refresh' && req.method === 'POST') {
+      if (!sameOrigin(req, allowedOrigin)) return json(res, 403, { error: 'Refresh must come from this dashboard.' });
+      await body(req); workspace.security.refresh(true).catch(() => {});
+      return json(res, 202, workspace.security.status());
+    }
     if (url.pathname === '/api/refresh' && req.method === 'POST') {
       if (!sameOrigin(req, allowedOrigin)) return json(res, 403, { error: 'Refresh must come from this dashboard.' });
       await body(req); cache.refresh(true).catch(() => {});
@@ -111,7 +129,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/health' && req.method === 'GET') return json(res, 200, { ok: true, projectId: workspace.project.id, ...cache.status() });
     if (req.method !== 'GET') return json(res, 405, { error: 'Method not allowed' });
-    const files = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/analytics.css': ['analytics.css', 'text/css'] };
+    const files = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/analytics.css': ['analytics.css', 'text/css'], '/security.html': ['security.html', 'text/html'], '/security-page.js': ['security-page.js', 'text/javascript'] };
     const file = files[url.pathname]; if (!file) return json(res, 404, { error: 'Not found' });
     res.setHeader('Content-Type', file[1] + '; charset=utf-8'); res.end(await fsp.readFile(path.join(__dirname, 'public', file[0])));
   } catch (err) { json(res, url.pathname.startsWith('/api/annotations') ? 400 : 503, { error: err.publicMessage || 'The request could not be completed. Please try again.' }); }

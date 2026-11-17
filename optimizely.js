@@ -63,6 +63,14 @@ function createOptimizelyClient({ token, projectId, projectName = 'US/CA Web · 
       if (target.origin !== base.origin || target.pathname !== url.pathname) throw new Error('Unexpected history pagination host');
     }
     return { records, hasMore: Boolean(next) || records.length === 50 };
+  }, async securitySources() {
+    const before = calls;
+    const project = (await get(new URL('projects/' + encodeURIComponent(projectId), base))).data;
+    const [experiments, pages] = await Promise.all(['experiments', 'pages'].map(list));
+    // Extensions are optional (not every plan/project exposes them); a failure must not hide the rest of the scan.
+    let extensions = [];
+    try { extensions = await list('extensions'); } catch (err) { if (!/HTTP (400|403|404)/.test(err.message)) throw err; }
+    return { project, experiments, pages, extensions, apiCalls: calls - before };
   }, async snapshot() {
     const before = calls;
     const [campaigns, experiments, pages, audiences] = await Promise.all(['campaigns', 'experiments', 'pages', 'audiences'].map(list));
