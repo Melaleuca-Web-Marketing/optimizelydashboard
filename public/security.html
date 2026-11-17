@@ -4,16 +4,17 @@
 <body>
 <header class="topbar"><a href="./" class="brand"><span class="brand-icon" aria-hidden="true">◉</span> Optimizely Dashboard</a><label class="project-picker">Project<select id="project" aria-label="Project"><option value="">Loading projects…</option></select></label></header>
 <main>
-<section class="intro"><div><h1>Code security scan.</h1><p>Experiment custom code, page activation code and extensions, checked for the Optimizely Web compromise (<code>1688360.cc</code>, <code>atob(</code>) and other risky patterns. Findings show short excerpts only.</p></div><div class="sync-actions"><button id="scan" class="primary">Scan now <span aria-hidden="true">↻</span></button><div id="scanTime" class="sync-time">Not scanned yet</div></div></section>
+<section class="intro"><div><h1>Code security scan.</h1><p>Experiment custom code, page activation code, extensions and the published snippet (which includes Project JavaScript), checked for the Optimizely Web compromise (<code>1688360.cc</code>, <code>atob(</code>) and other risky patterns. Findings show short excerpts only.</p></div><div class="sync-actions"><button id="scan" class="primary">Scan now <span aria-hidden="true">↻</span></button><div id="scanTime" class="sync-time">Not scanned yet</div></div></section>
 <div id="notice" class="notice" role="status" hidden></div>
 <section class="stats" aria-label="Scan totals"><div><span>Critical</span><strong id="statCritical">—</strong><small>Known indicators</small></div><div><span>High</span><strong id="statHigh">—</strong><small>Decode, eval, injection</small></div><div><span>Medium</span><strong id="statMedium">—</strong><small>Network, cookies, card fields</small></div><div><span>Scanned</span><strong id="statScanned">—</strong><small id="statScannedDetail">Code sources</small></div></section>
 <section class="panel" aria-label="Findings">
 <div class="panel-heading"><div><h2>Findings</h2><span id="projectLabel" class="muted">Loading project</span></div></div>
+<div id="snippetInfo" class="muted" style="padding:0 20px 12px" hidden></div>
 <div class="filters"><label>Minimum severity<select id="severity"><option value="low">Low and above</option><option value="medium">Medium and above</option><option value="high">High and above</option><option value="critical">Critical only</option></select></label><label><input type="checkbox" id="hideArchived"> Hide archived experiments</label></div>
 <div class="table-scroll"><table><thead><tr><th>Severity</th><th>Finding</th><th>Where</th><th>Experiment / page</th><th>Excerpt</th></tr></thead><tbody id="rows"><tr><td colspan="5">Loading…</td></tr></tbody></table></div>
 <div class="panel-footer"><span><i class="dot live"></i> Read-only Optimizely connection</span><span id="cacheInfo">Server cache</span></div>
 </section>
-<p class="footnote">A clean scan is not proof of safety. It covers code stored in Optimizely only. <strong>Project JavaScript is not available through the Optimizely API</strong>, so review it manually under Settings → JavaScript for each project. Also review users, API tokens and integrations in Optimizely, and check that your site’s CSP restricts <code>connect-src</code>.</p>
+<p class="footnote">A clean scan is not proof of safety. It covers code stored in Optimizely only. Project JavaScript is not exposed by the Optimizely API, so it is checked through the published snippet, using only high-signal rules (known indicator, <code>atob(</code>, unexpected hosts) because the snippet contains Optimizely’s own runtime. Also review users, API tokens and integrations in Optimizely, and check that your site’s CSP restricts <code>connect-src</code>.</p>
 </main>
 <div id="toast" role="status" hidden></div>
 </body></html>

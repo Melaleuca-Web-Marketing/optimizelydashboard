@@ -63,6 +63,18 @@ function createOptimizelyClient({ token, projectId, projectName = 'US/CA Web · 
       if (target.origin !== base.origin || target.pathname !== url.pathname) throw new Error('Unexpected history pagination host');
     }
     return { records, hasMore: Boolean(next) || records.length === 50 };
+  }, async snippet({ maxBytes = 25 * 1024 * 1024 } = {}) {
+    // The published snippet is what visitors load and includes the Project JavaScript, which the REST API does not expose.
+    if (!/^\d+$/.test(String(projectId))) throw new Error('Invalid project id');
+    const target = new URL(`https://cdn.optimizely.com/js/${projectId}.js`);
+    const r = await fetchImpl(target, { headers: { Accept: 'text/javascript,*/*' }, signal: AbortSignal.timeout(60000), redirect: 'error' });
+    if (!r.ok) { const err = new Error('Snippet HTTP ' + r.status); err.publicMessage = 'The published Optimizely snippet could not be fetched (HTTP ' + r.status + ').'; throw err; }
+    const declared = Number(r.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > maxBytes) throw new Error('Snippet too large');
+    const text = await r.text();
+    if (text.length > maxBytes) throw new Error('Snippet too large');
+    const sha256 = require('node:crypto').createHash('sha256').update(text).digest('hex');
+    return { text, bytes: Buffer.byteLength(text), sha256, lastModified: r.headers.get('last-modified') || null, etag: r.headers.get('etag') || null };
   }, async securitySources() {
     const before = calls;
     const project = (await get(new URL('projects/' + encodeURIComponent(projectId), base))).data;

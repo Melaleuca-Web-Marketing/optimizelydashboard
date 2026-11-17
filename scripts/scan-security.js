@@ -13,18 +13,19 @@ for (const file of [path.join(__dirname, '..', '.env'), path.join(__dirname, '..
 }
 const { PROJECTS } = require('../projects');
 const { createOptimizelyClient } = require('../optimizely');
-const { scanProject } = require('../security');
+const { runSecurityScan } = require('../security');
 (async () => {
   if (!process.env.OPTIMIZELY_TOKEN) { console.error('OPTIMIZELY_TOKEN is not set.'); process.exit(2); }
   const wanted = process.argv.slice(2);
   let critical = 0;
   for (const project of PROJECTS.filter(p => !wanted.length || wanted.includes(p.id))) {
     const client = createOptimizelyClient({ token: process.env.OPTIMIZELY_TOKEN, projectId: project.id, projectName: project.name });
-    const raw = await client.securitySources();
-    const r = scanProject(raw);
+    const r = await runSecurityScan(client, project);
     critical += r.counts.critical;
     console.log(`\n=== ${project.name} (${project.id}) ===`);
-    console.log(`Scanned ${r.scannedSources} code sources from ${r.scannedExperiments} experiments, ${r.scannedPages} pages, ${r.scannedExtensions} extensions. Project JavaScript is not exposed by the Optimizely API: review it manually in the UI.`);
+    console.log(`Scanned ${r.scannedSources} code sources from ${r.scannedExperiments} experiments, ${r.scannedPages} pages, ${r.scannedExtensions} extensions.`);
+    const sn = r.snippet;
+    console.log(sn.error ? `Published snippet: ${sn.error}` : `Published snippet (includes Project JavaScript): ${(sn.bytes / 1048576).toFixed(2)} MB, sha256 ${sn.sha256.slice(0, 16)}, last-modified ${sn.lastModified}`);
     console.log(`Critical ${r.counts.critical} · High ${r.counts.high} · Medium ${r.counts.medium} · Low ${r.counts.low}`);
     for (const f of r.findings) console.log(`[${f.severity.toUpperCase()}] ${f.label} | ${f.kind} ${f.entityName} (${f.entityId})${f.variation ? ' / ' + f.variation : ''}${f.status ? ' [' + f.status + ']' : ''}${f.archived ? ' [archived]' : ''} | ${f.excerpt}`);
   }

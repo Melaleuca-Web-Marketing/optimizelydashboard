@@ -1,6 +1,6 @@
 const $ = id => document.getElementById(id);
 const RANK = { low: 0, medium: 1, high: 2, critical: 3 };
-const WHERE = { 'project-javascript': 'Project JavaScript', 'experiment-code': 'Experiment code', 'page-activation': 'Page activation code', extension: 'Extension' };
+const WHERE = { 'project-javascript': 'Project JavaScript', 'experiment-code': 'Experiment code', 'page-activation': 'Page activation code', extension: 'Extension', 'published-snippet': 'Published snippet (incl. Project JS)' };
 const state = { projectId: '', data: null };
 const endpoint = path => '.' + path + '?project_id=' + encodeURIComponent(state.projectId);
 function toast(message) { const t = $('toast'); t.textContent = message; t.hidden = false; setTimeout(() => { t.hidden = true; }, 4000); }
@@ -13,6 +13,14 @@ function render() {
   $('projectLabel').textContent = d.projectName;
   $('scanTime').textContent = 'Scanned ' + new Date(d.fetchedAt).toLocaleString();
   $('cacheInfo').textContent = `Server cache · ${d.apiCalls ?? '?'} API calls for last scan`;
+  const sn = d.snippet, info = $('snippetInfo');
+  if (!sn) info.hidden = true;
+  else {
+    info.hidden = false;
+    info.textContent = sn.error ? 'Published snippet: ' + sn.error
+      : `Published snippet: ${(sn.bytes / 1048576).toFixed(2)} MB · SHA-256 ${sn.sha256.slice(0, 12)}… · last modified ${sn.lastModified || 'unknown'}`
+        + (sn.changedSinceLastScan === true ? ' · CHANGED since the previous scan (' + new Date(sn.previousScannedAt).toLocaleString() + '); expected if experiments were published' : sn.changedSinceLastScan === false ? ' · unchanged since the previous scan' : ' · first scan, no baseline yet');
+  }
   const min = RANK[$('severity').value], hideArchived = $('hideArchived').checked;
   const rows = d.findings.filter(f => RANK[f.severity] >= min && !(hideArchived && f.archived));
   const body = $('rows'); body.replaceChildren();

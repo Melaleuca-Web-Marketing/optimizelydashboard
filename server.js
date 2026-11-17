@@ -14,7 +14,7 @@ const { createOptimizelyClient } = require('./optimizely');
 const { publicOrigin, sameOrigin } = require('./deployment');
 const { PROJECTS } = require('./projects');
 const { HistoryStore } = require('./history');
-const { scanProject } = require('./security');
+const { runSecurityScan } = require('./security');
 function loadEnv(file) {
   if (!fs.existsSync(file)) return;
   for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
@@ -46,9 +46,7 @@ const workspaces = new Map(projectDefinitions.map(project => {
   // Security scan of customer-authored code. Lazy: only runs when requested, never on the background timer.
   workspace.security = new SnapshotCache({ file: path.join(dataDir, `security-${project.id}.json`), ttlMs: ttl, load: async () => {
     if (!process.env.OPTIMIZELY_TOKEN) { const e = new Error('Missing token'); e.publicMessage = 'Set OPTIMIZELY_TOKEN in the dashboard .env to run the security scan.'; throw e; }
-    const raw = await client.securitySources();
-    const result = scanProject(raw);
-    return { schemaVersion: 1, projectId: project.id, projectName: project.name, fetchedAt: new Date().toISOString(), apiCalls: raw.apiCalls, ...result, items: result.findings };
+    return runSecurityScan(client, project, workspace.security.snapshot);
   } });
   return [project.id, workspace];
 }));

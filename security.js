@@ -38,6 +38,33 @@ function scanCode(text, { allowedHosts = DEFAULT_ALLOWED_HOSTS } = {}) {
   return findings;
 }
 
+// The published snippet bundles Optimizely's own runtime (eval, fetch, cookies, 300KB+ lines), so the full rule set
+// is pure noise there. Snippet mode keeps only high-signal rules: the known IOC, atob, and unexpected hosts.
+const SNIPPET_URL_RE = /https?:\/\/(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?[^\s'"`)<>\\]*/gi;
+function scanSnippet(text, { allowedHosts = DEFAULT_ALLOWED_HOSTS } = {}) {
+  if (typeof text !== 'string' || !text) return [];
+  const findings = [];
+  for (const rule of RULES.filter(r => r.id === 'ioc-domain' || r.id === 'atob')) {
+    const m = rule.test.exec(text);
+    if (m) findings.push({ rule: rule.id, severity: rule.severity, label: rule.label, excerpt: excerpt(text, m.index) });
+  }
+  const hosts = new Map();
+  for (const m of text.matchAll(SNIPPET_URL_RE)) { const host = hostOf(m[0]); if (host && !allowedHosts.some(re => re.test(host)) && !hosts.has(host)) hosts.set(host, excerpt(text, m.index)); }
+  for (const [host, ex] of hosts) findings.push({ rule: 'external-url', severity: IOC_DOMAINS.some(d => host.endsWith(d)) ? 'critical' : 'low', label: 'External URL: ' + host, excerpt: ex });
+  return findings;
+}
+function snippetFindings(projectId, text, options) {
+  return scanSnippet(text, options).map(f => ({ ...f, kind: 'published-snippet', entityId: String(projectId), entityName: 'Published snippet', status: null, archived: false, variation: null, field: null }));
+}
+const ORDER_SEV = { critical: 0, high: 1, medium: 2, low: 3 };
+// Merge extra findings (e.g. from the snippet) into an existing scanProject result, keeping order and counts consistent.
+function mergeFindings(result, extra) {
+  const findings = [...result.findings, ...extra].sort((a, b) => ORDER_SEV[a.severity] - ORDER_SEV[b.severity] || a.entityName.localeCompare(b.entityName));
+  const counts = { critical: 0, high: 0, medium: 0, low: 0 };
+  for (const f of findings) counts[f.severity]++;
+  return { ...result, findings, counts };
+}
+
 // Collect every code-bearing string in a project's raw API data with a stable pointer back to where it lives.
 function collectSources({ project, experiments = [], pages = [], extensions = [] }) {
   const sources = [];
@@ -68,4 +95,17 @@ function scanProject(raw, options) {
   for (const f of findings) counts[f.severity]++;
   return { scannedSources: sources.length, scannedExperiments: raw.experiments?.length || 0, scannedPages: raw.pages?.length || 0, scannedExtensions: raw.extensions?.length || 0, counts, findings };
 }
-module.exports = { scanCode, scanProject, collectSources, IOC_DOMAINS };
+// Full scan for one project: API-visible code plus the published snippet. A snippet failure never hides the API results.
+async function runSecurityScan(client, project, previous = null) {
+  const raw = await client.securitySources();
+  let result = scanProject(raw);
+  let snippet = null;
+  try {
+    const s = await client.snippet();
+    const prior = previous?.snippet;
+    snippet = { bytes: s.bytes, sha256: s.sha256, lastModified: s.lastModified, etag: s.etag, changedSinceLastScan: prior?.sha256 ? prior.sha256 !== s.sha256 : null, previousSha256: prior?.sha256 || null, previousScannedAt: previous?.fetchedAt || null };
+    result = mergeFindings(result, snippetFindings(project.id, s.text));
+  } catch (err) { snippet = { error: err.publicMessage || 'The published snippet could not be scanned.' }; }
+  return { schemaVersion: 2, projectId: project.id, projectName: project.name, fetchedAt: new Date().toISOString(), apiCalls: raw.apiCalls, snippet, ...result, items: result.findings };
+}
+module.exports = { runSecurityScan, scanCode, scanSnippet, snippetFindings, mergeFindings, scanProject, collectSources, IOC_DOMAINS };
